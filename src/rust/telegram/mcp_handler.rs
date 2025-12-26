@@ -4,7 +4,7 @@ use teloxide::prelude::*;
 
 use crate::config::load_standalone_config;
 use crate::mcp::types::{build_continue_response, build_send_response, PopupRequest};
-use crate::telegram::{handle_callback_query, handle_text_message, TelegramCore, TelegramEvent};
+use crate::telegram::{handle_callback_query, handle_text_message, CallbackQueryResult, TelegramCore, TelegramEvent};
 use crate::log_important;
 
 /// 处理纯Telegram模式的MCP请求（不启动GUI）
@@ -90,7 +90,12 @@ async fn start_telegram_mcp_listener(
                                 &predefined_options,
                                 &mut selected_options,
                                 &mut options_message_id,
+                                &user_input,
+                                &request,
                             ).await {
+                                if let Some(_result) = e.downcast_ref::<ProcessingComplete>() {
+                                    return Ok(());
+                                }
                                 log_important!(warn, "处理callback query失败: {}", e);
                             }
                         }
@@ -132,33 +137,52 @@ async fn handle_callback_query_update(
     predefined_options: &[String],
     selected_options: &mut HashSet<String>,
     options_message_id: &mut Option<i32>,
+    user_input: &str,
+    request: &PopupRequest,
 ) -> Result<()> {
-    // 只有当有预定义选项时才处理 callback queries
-    if predefined_options.is_empty() {
-        return Ok(());
-    }
-
-    // 从callback_query中提取消息ID
+    // 今callback_query中提取消息ID
     if let Some(message) = &callback_query.message {
-        if options_message_id.is_none() {
+        if options_message_id.is_none() && !predefined_options.is_empty() {
             *options_message_id = Some(message.id().0);
         }
     }
 
-    if let Ok(Some(option)) = handle_callback_query(&core.bot, callback_query, core.chat_id).await {
-        // 切换选项状态
-        if selected_options.contains(&option) {
-            selected_options.remove(&option);
-        } else {
-            selected_options.insert(option.clone());
-        }
+    if let Ok(Some(result)) = handle_callback_query(&core.bot, callback_query, core.chat_id).await {
+        match result {
+            CallbackQueryResult::OptionToggled(option) => {
+                // 只有当有预定义选项时才处理选项切换
+                if !predefined_options.is_empty() {
+                    // 切换选项状态
+                    if selected_options.contains(&option) {
+                        selected_options.remove(&option);
+                    } else {
+                        selected_options.insert(option.clone());
+                    }
 
-        // 更新按钮状态
-        if let Some(msg_id) = *options_message_id {
-            let selected_vec: Vec<String> = selected_options.iter().cloned().collect();
-            let _ = core
-                .update_inline_keyboard(msg_id, predefined_options, &selected_vec)
-                .await;
+                    // 更新按钮状态
+                    if let Some(msg_id) = *options_message_id {
+                        let selected_vec: Vec<String> = selected_options.iter().cloned().collect();
+                        let _ = core
+                            .update_inline_keyboard(msg_id, predefined_options, &selected_vec)
+                            .await;
+                    }
+                }
+            }
+            CallbackQueryResult::EnhancePressed => {
+                // 增强按钮点击
+                handle_enhance_pressed(core, user_input, request).await?;
+                return Err(ProcessingComplete.into());
+            }
+            CallbackQueryResult::ContinuePressed => {
+                // 继续按钮点击
+                handle_continue_pressed(core, request).await?;
+                return Err(ProcessingComplete.into());
+            }
+            CallbackQueryResult::SendPressed => {
+                // 发送按钮点击
+                handle_send_pressed(core, selected_options, user_input, request).await?;
+                return Err(ProcessingComplete.into());
+            }
         }
     }
 
@@ -293,6 +317,46 @@ async fn handle_continue_pressed(
         true, // 是继续操作
     );
     let _ = core.send_message(&feedback_message).await;
+
+    Ok(())
+}
+
+/// 处理增强按钮按下
+async fn handle_enhance_pressed(
+    core: &TelegramCore,
+    user_input: &str,
+    request: &PopupRequest,
+) -> Result<()> {
+    // 构建增强prompt
+    let enhance_prompt = format!(
+        r#"Use the following prompt to optimize and enhance the context of the content in 《》, and return the enhanced result by calling the tool '寸止' after completion.Here is an instruction that I'd like to give you, but it needs to be improved. Rewrite and enhance this instruction to make it clearer, more specific, less ambiguous, and correct any mistakes. Reply immediately with your answer, even if you're not sure. Consider the context of our conversation history when enhancing the prompt. Reply with the following format:
+
+### BEGIN RESPONSE ###
+Here is an enhanced version of the original instruction that is more specific and clear:
+<augment-enhanced-prompt>enhanced prompt goes here</augment-enhanced-prompt>
+
+### END RESPONSE ###
+
+Here is my original instruction:
+
+《{}》"#,
+        user_input
+    );
+
+    // 构建响应
+    let response = build_send_response(
+        Some(enhance_prompt),
+        vec![],
+        vec![],
+        Some(request.id.clone()),
+        "telegram_enhance",
+    );
+
+    // 输出JSON响应到stdout（MCP协议要求）
+    println!("{}", response);
+
+    // 发送确认消息
+    let _ = core.send_message("✨ 增强请求已发送，等待 AI 处理...").await;
 
     Ok(())
 }

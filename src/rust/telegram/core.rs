@@ -20,6 +20,8 @@ pub enum TelegramEvent {
     OptionToggled { option: String, selected: bool },
     /// 文本输入更新
     TextUpdated { text: String },
+    /// 增强按钮点击
+    EnhancePressed { text: String },
     /// 继续按钮点击
     ContinuePressed,
     /// 发送按钮点击
@@ -134,18 +136,18 @@ impl TelegramCore {
         }
     }
 
-    /// 发送操作消息（消息二）
+    /// 发送操作消息（消息二）- 使用 InlineKeyboard
     pub async fn send_operation_message(&self, continue_reply_enabled: bool) -> Result<i32> {
-        // 创建reply keyboard
-        let reply_keyboard = Self::create_reply_keyboard(continue_reply_enabled);
+        // 创建 inline keyboard（不会因输入文字而消失）
+        let inline_keyboard = Self::create_operation_inline_keyboard(continue_reply_enabled);
 
         // 发送操作消息
-        let operation_message = "键盘上选择操作完成对话";
+        let operation_message = "👇 点击按钮完成操作";
 
         match self
             .bot
             .send_message(self.chat_id, operation_message)
-            .reply_markup(reply_keyboard)
+            .reply_markup(inline_keyboard)
             .await
         {
             Ok(msg) => Ok(msg.id.0),
@@ -190,7 +192,8 @@ impl TelegramCore {
         Ok(keyboard)
     }
 
-    /// 创建reply keyboard
+    /// 创建reply keyboard (已弃用，保留兼容)
+    #[allow(dead_code)]
     pub fn create_reply_keyboard(continue_reply_enabled: bool) -> KeyboardMarkup {
         let mut keyboard_buttons = vec![KeyboardButton::new("↗️发送")];
 
@@ -201,6 +204,21 @@ impl TelegramCore {
         KeyboardMarkup::new(vec![keyboard_buttons])
             .resize_keyboard()
             .one_time_keyboard()
+    }
+
+    /// 创建操作按钮的 InlineKeyboard（不会因输入文字而消失）
+    pub fn create_operation_inline_keyboard(continue_reply_enabled: bool) -> InlineKeyboardMarkup {
+        let mut buttons = Vec::new();
+        
+        // 增强按钮
+        buttons.push(InlineKeyboardButton::callback("✨ 增强", "operation:enhance"));
+        
+        if continue_reply_enabled {
+            buttons.push(InlineKeyboardButton::callback("⏩ 继续", "operation:continue"));
+        }
+        buttons.push(InlineKeyboardButton::callback("↗️ 发送", "operation:send"));
+        
+        InlineKeyboardMarkup::new(vec![buttons])
     }
 
     /// 更新inline keyboard中的选项状态
@@ -227,12 +245,25 @@ impl TelegramCore {
     }
 }
 
+/// Callback Query 结果类型
+#[derive(Debug, Clone)]
+pub enum CallbackQueryResult {
+    /// 选项切换
+    OptionToggled(String),
+    /// 增强按钮点击
+    EnhancePressed,
+    /// 继续按钮点击
+    ContinuePressed,
+    /// 发送按钮点击
+    SendPressed,
+}
+
 /// 处理callback query的通用函数（不发送事件，由调用方处理）
 pub async fn handle_callback_query(
     bot: &Bot,
     callback_query: &CallbackQuery,
     target_chat_id: ChatId,
-) -> ResponseResult<Option<String>> {
+) -> ResponseResult<Option<CallbackQueryResult>> {
     // 检查是否是目标聊天
     if let Some(message) = &callback_query.message {
         if message.chat().id != target_chat_id {
@@ -240,19 +271,25 @@ pub async fn handle_callback_query(
         }
     }
 
-    let mut toggled_option = None;
+    let mut result = None;
 
     if let Some(data) = &callback_query.data {
         if data.starts_with("toggle:") {
             let option = data.strip_prefix("toggle:").unwrap().to_string();
-            toggled_option = Some(option);
+            result = Some(CallbackQueryResult::OptionToggled(option));
+        } else if data == "operation:enhance" {
+            result = Some(CallbackQueryResult::EnhancePressed);
+        } else if data == "operation:continue" {
+            result = Some(CallbackQueryResult::ContinuePressed);
+        } else if data == "operation:send" {
+            result = Some(CallbackQueryResult::SendPressed);
         }
     }
 
     // 回答callback query
     bot.answer_callback_query(&callback_query.id).await?;
 
-    Ok(toggled_option)
+    Ok(result)
 }
 
 /// 处理文本消息的通用函数（不发送事件，由调用方处理）

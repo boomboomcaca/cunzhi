@@ -1,7 +1,7 @@
 use crate::config::{save_config, AppState, TelegramConfig};
 use crate::constants::telegram as telegram_constants;
 use crate::telegram::{
-    handle_callback_query, handle_text_message, TelegramCore,
+    handle_callback_query, handle_text_message, CallbackQueryResult, TelegramCore,
 };
 use crate::log_important;
 use tauri::{AppHandle, Emitter, Manager, State};
@@ -311,48 +311,81 @@ async fn start_telegram_listener(
 
                     match update.kind {
                         teloxide::types::UpdateKind::CallbackQuery(callback_query) => {
-                            // 只有当有预定义选项时才处理 callback queries
-                            if has_options {
-                                // 从callback_query中提取消息ID
-                                if let Some(message) = &callback_query.message {
-                                    if options_message_id.is_none() {
-                                        options_message_id = Some(message.id().0);
-                                    }
+                            // 今callback_query中提取消息ID
+                            if let Some(message) = &callback_query.message {
+                                if options_message_id.is_none() && has_options {
+                                    options_message_id = Some(message.id().0);
                                 }
+                            }
 
-                                if let Ok(Some(option)) =
-                                    handle_callback_query(&core.bot, &callback_query, core.chat_id)
-                                        .await
-                                {
-                                    // 切换选项状态
-                                    let selected = if selected_options.contains(&option) {
-                                        selected_options.remove(&option);
-                                        false
-                                    } else {
-                                        selected_options.insert(option.clone());
-                                        true
-                                    };
+                            if let Ok(Some(result)) =
+                                handle_callback_query(&core.bot, &callback_query, core.chat_id)
+                                    .await
+                            {
+                                use crate::telegram::TelegramEvent;
+                                
+                                match result {
+                                    CallbackQueryResult::OptionToggled(option) => {
+                                        // 只有当有预定义选项时才处理选项切换
+                                        if has_options {
+                                            // 切换选项状态
+                                            let selected = if selected_options.contains(&option) {
+                                                selected_options.remove(&option);
+                                                false
+                                            } else {
+                                                selected_options.insert(option.clone());
+                                                true
+                                            };
 
-                                    // 发送事件到前端
-                                    use crate::telegram::TelegramEvent;
-                                    let event = TelegramEvent::OptionToggled {
-                                        option: option.clone(),
-                                        selected,
-                                    };
+                                            // 发送事件到前端
+                                            let event = TelegramEvent::OptionToggled {
+                                                option: option.clone(),
+                                                selected,
+                                            };
+                                            let _ = app_handle.emit("telegram-event", &event);
 
-                                    let _ = app_handle.emit("telegram-event", &event);
-
-                                    // 更新按钮状态
-                                    if let Some(msg_id) = options_message_id {
-                                        let selected_vec: Vec<String> =
+                                            // 更新按钮状态
+                                            if let Some(msg_id) = options_message_id {
+                                                let selected_vec: Vec<String> =
+                                                    selected_options.iter().cloned().collect();
+                                                let _ = core
+                                                    .update_inline_keyboard(
+                                                        msg_id,
+                                                        &predefined_options,
+                                                        &selected_vec,
+                                                    )
+                                                    .await;
+                                            }
+                                        }
+                                    }
+                                    CallbackQueryResult::EnhancePressed => {
+                                        // 增强按钮点击 - 发送用户输入的文本进行增强
+                                        let _ = core.send_message("✨ 正在增强文本...").await;
+                                        let _ = app_handle.emit("telegram-event", &TelegramEvent::EnhancePressed { text: user_input.clone() });
+                                    }
+                                    CallbackQueryResult::ContinuePressed => {
+                                        // 继续按钮点击
+                                        let feedback_message =
+                                            crate::telegram::core::build_feedback_message(
+                                                &[],
+                                                "",
+                                                true,
+                                            );
+                                        let _ = core.send_message(&feedback_message).await;
+                                        let _ = app_handle.emit("telegram-event", &TelegramEvent::ContinuePressed);
+                                    }
+                                    CallbackQueryResult::SendPressed => {
+                                        // 发送按钮点击
+                                        let selected_list: Vec<String> =
                                             selected_options.iter().cloned().collect();
-                                        if let Ok(_) = core
-                                            .update_inline_keyboard(
-                                                msg_id,
-                                                &predefined_options,
-                                                &selected_vec,
-                                            )
-                                            .await {}
+                                        let feedback_message =
+                                            crate::telegram::core::build_feedback_message(
+                                                &selected_list,
+                                                &user_input,
+                                                false,
+                                            );
+                                        let _ = core.send_message(&feedback_message).await;
+                                        let _ = app_handle.emit("telegram-event", &TelegramEvent::SendPressed);
                                     }
                                 }
                             }
