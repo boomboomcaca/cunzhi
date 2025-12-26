@@ -359,9 +359,28 @@ async fn start_telegram_listener(
                                         }
                                     }
                                     CallbackQueryResult::EnhancePressed => {
-                                        // 增强按钮点击 - 发送用户输入的文本进行增强
-                                        let _ = core.send_message("✨ 正在增强文本...").await;
-                                        let _ = app_handle.emit("telegram-event", &TelegramEvent::EnhancePressed { text: user_input.clone() });
+                                        // 增强按钮点击 - 参照发送和继续按钮的实现
+                                        // 构建增强 prompt
+                                        let enhance_prompt = format!(
+                                            r#"Use the following prompt to optimize and enhance the context of the content in 《》, and return the enhanced result by calling the tool '寸止' after completion.Here is an instruction that I'd like to give you, but it needs to be improved. Rewrite and enhance this instruction to make it clearer, more specific, less ambiguous, and correct any mistakes. Reply immediately with your answer, even if you're not sure. Consider the context of our conversation history when enhancing the prompt. Reply with the following format:
+
+### BEGIN RESPONSE ###
+Here is an enhanced version of the original instruction that is more specific and clear:
+<augment-enhanced-prompt>enhanced prompt goes here</augment-enhanced-prompt>
+
+### END RESPONSE ###
+
+Here is my original instruction:
+
+《{}》"#,
+                                            user_input
+                                        );
+                                        
+                                        // 发送确认消息
+                                        let _ = core.send_message(&format!("✨ 增强请求已发送\n\n📝 原文：{}", user_input)).await;
+                                        
+                                        // 发送增强事件到前端，携带构建好的 prompt
+                                        let _ = app_handle.emit("telegram-event", &TelegramEvent::EnhancePressed { text: enhance_prompt });
                                     }
                                     CallbackQueryResult::ContinuePressed => {
                                         // 继续按钮点击

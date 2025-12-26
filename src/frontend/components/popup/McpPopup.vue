@@ -160,6 +160,10 @@ function handleTelegramEvent(event: any) {
       console.log('🎯 [McpPopup] 处理发送按钮')
       handleSubmit()
       break
+    case 'enhance_pressed':
+      console.log('🎯 [McpPopup] 处理增强按钮:', event.text)
+      handleEnhanceFromTelegram(event.text)
+      break
     default:
       console.log('🎯 [McpPopup] 未知事件类型:', event.type)
   }
@@ -371,6 +375,46 @@ Here is my original instruction:
     }
     else {
       // 实际发送增强请求
+      await invoke('send_mcp_response', { response })
+      await invoke('exit_app')
+    }
+
+    emit('response', response)
+  }
+  catch (error) {
+    console.error('发送增强请求失败:', error)
+    message.error('增强请求失败，请重试')
+  }
+  finally {
+    submitting.value = false
+  }
+}
+
+// 处理来自 Telegram 的增强请求（直接使用传入的 prompt）
+async function handleEnhanceFromTelegram(enhancePrompt: string) {
+  if (submitting.value)
+    return
+
+  submitting.value = true
+
+  try {
+    // 使用 Telegram 传来的已构建好的增强 prompt
+    const response = {
+      user_input: enhancePrompt,
+      selected_options: [],
+      images: [],
+      metadata: {
+        timestamp: new Date().toISOString(),
+        request_id: props.request?.id || null,
+        source: 'telegram_enhance',
+      },
+    }
+
+    if (props.mockMode) {
+      await new Promise(resolve => setTimeout(resolve, 1000))
+      message.success('增强请求发送成功')
+    }
+    else {
       await invoke('send_mcp_response', { response })
       await invoke('exit_app')
     }
