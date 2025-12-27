@@ -73,6 +73,8 @@ export function useAppManager() {
       cleanup: () => {
         // 清理窗口焦点监听器
         settings.removeWindowFocusListener()
+        // 清理窗口位置监听器
+        settings.removeWindowMoveListener()
       },
     },
   }

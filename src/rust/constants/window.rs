@@ -27,6 +27,10 @@ pub const DEFAULT_FIXED_MODE: bool = false;
 /// 默认自动调整大小状态
 pub const DEFAULT_AUTO_RESIZE: bool = true;
 
+/// 窗口位置未设置的标记值（使用 None 表示居中）
+pub const DEFAULT_POSITION_X: Option<i32> = None;
+pub const DEFAULT_POSITION_Y: Option<i32> = None;
+
 // 窗口约束结构体
 #[derive(Debug, Clone)]
 pub struct WindowConstraints {

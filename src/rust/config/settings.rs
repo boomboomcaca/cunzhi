@@ -84,6 +84,12 @@ pub struct WindowConfig {
     pub free_width: f64,
     #[serde(default = "default_free_height")]
     pub free_height: f64,
+
+    // 窗口位置（逻辑坐标，None 表示居中显示）
+    #[serde(default = "default_position_x")]
+    pub position_x: Option<i32>,
+    #[serde(default = "default_position_y")]
+    pub position_y: Option<i32>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -299,6 +305,8 @@ pub fn default_window_config() -> WindowConfig {
         fixed_height: window::DEFAULT_HEIGHT,
         free_width: window::DEFAULT_WIDTH,
         free_height: window::DEFAULT_HEIGHT,
+        position_x: window::DEFAULT_POSITION_X,
+        position_y: window::DEFAULT_POSITION_Y,
     }
 }
 
@@ -376,6 +384,14 @@ pub fn default_free_width() -> f64 {
 
 pub fn default_free_height() -> f64 {
     window::DEFAULT_HEIGHT
+}
+
+pub fn default_position_x() -> Option<i32> {
+    window::DEFAULT_POSITION_X
+}
+
+pub fn default_position_y() -> Option<i32> {
+    window::DEFAULT_POSITION_Y
 }
 
 pub fn default_telegram_enabled() -> bool {

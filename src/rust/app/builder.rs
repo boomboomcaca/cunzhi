@@ -49,6 +49,8 @@ pub fn build_tauri_app() -> Builder<tauri::Wry> {
             get_current_window_size,
             apply_window_constraints,
             update_window_size,
+            update_window_position,
+            get_current_window_position,
 
             // 字体命令
             get_font_config,

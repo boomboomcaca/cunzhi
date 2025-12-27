@@ -1,7 +1,7 @@
 use anyhow::Result;
 use std::fs;
 use std::path::PathBuf;
-use tauri::{AppHandle, LogicalSize, Manager, State};
+use tauri::{AppHandle, LogicalPosition, LogicalSize, Manager, State};
 
 use super::settings::{AppConfig, AppState, default_shortcuts};
 
@@ -114,6 +114,21 @@ pub async fn load_config_and_apply_window_settings(
         if let Err(_e) = window.set_size(LogicalSize::new(target_width, target_height)) {
             // 静默处理窗口大小设置失败
         }
+
+        // 应用窗口位置（如果已保存）
+        // 使用逻辑坐标，Tauri 会自动处理 DPI 缩放
+        if let (Some(x), Some(y)) = (window_config.position_x, window_config.position_y) {
+            // 验证位置是否在合理范围内
+            if is_position_valid(x, y) {
+                if let Err(e) = window.set_position(LogicalPosition::new(x, y)) {
+                    log::warn!("设置窗口位置失败: {}", e);
+                } else {
+                    log::debug!("窗口位置已恢复为: ({}, {})", x, y);
+                }
+            } else {
+                log::debug!("保存的窗口位置 ({}, {}) 无效，使用默认居中位置", x, y);
+            }
+        }
     }
 
     Ok(())
@@ -154,6 +169,13 @@ fn get_standalone_config_path() -> Result<PathBuf> {
     fs::create_dir_all(&config_dir)?;
 
     Ok(config_dir.join("config.json"))
+}
+
+/// 验证窗口位置是否有效（考虑多显示器环境）
+fn is_position_valid(x: i32, y: i32) -> bool {
+    // 允许负值（多显示器可能有负坐标），但限制在合理范围内
+    // 这个范围足以覆盖大多数多显示器配置
+    (-10000..=10000).contains(&x) && (-10000..=10000).contains(&y)
 }
 
 /// 合并默认快捷键配置，确保新的默认快捷键被添加到现有配置中

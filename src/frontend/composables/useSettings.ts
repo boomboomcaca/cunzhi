@@ -45,6 +45,10 @@ function createSettings() {
   // 窗口大小变化监听器
   let windowResizeUnlisten: (() => void) | null = null
 
+  // 窗口位置变化监听器
+  let windowMoveUnlisten: (() => void) | null = null
+  let moveThrottleTimer: number | null = null
+
   function setMessageInstance(messageInstance: any) {
     message = messageInstance
   }
@@ -117,6 +121,9 @@ function createSettings() {
       if (!fixedWindowSize.value) {
         await setupWindowResizeListener()
       }
+
+      // 设置窗口位置监听器（始终启用）
+      await setupWindowMoveListener()
     }
     catch (error) {
       console.error('加载窗口设置失败:', error)
@@ -339,6 +346,74 @@ function createSettings() {
     }
   }
 
+  // 节流保存窗口位置
+  function throttledSaveWindowPosition() {
+    if (moveThrottleTimer) {
+      clearTimeout(moveThrottleTimer)
+    }
+
+    moveThrottleTimer = window.setTimeout(async () => {
+      try {
+        // 获取当前窗口的逻辑位置
+        const result = await invoke('get_current_window_position')
+        if (result && typeof result === 'object') {
+          const { x, y } = result as { x: number, y: number }
+
+          // 保存窗口位置
+          await invoke('update_window_position', {
+            positionUpdate: { x, y },
+          })
+
+          console.log(`窗口位置已保存: (${x}, ${y})`)
+        }
+      }
+      catch (error) {
+        // 如果是窗口最小化的错误，静默处理
+        if (error && typeof error === 'string' && error.includes('窗口已最小化')) {
+          console.debug('跳过窗口位置保存:', error)
+        }
+        else {
+          console.error('保存窗口位置失败:', error)
+        }
+      }
+    }, windowConstraints.value.resize_throttle_ms) // 使用配置的节流时间
+  }
+
+  // 设置窗口位置变化监听器
+  async function setupWindowMoveListener() {
+    try {
+      const webview = getCurrentWebviewWindow()
+
+      // 移除之前的监听器
+      if (windowMoveUnlisten) {
+        windowMoveUnlisten()
+      }
+
+      // 监听窗口位置变化
+      windowMoveUnlisten = await webview.onMoved(() => {
+        throttledSaveWindowPosition()
+      })
+
+      console.log('窗口位置变化监听器已设置')
+    }
+    catch (error) {
+      console.error('设置窗口位置变化监听器失败:', error)
+    }
+  }
+
+  // 移除窗口位置变化监听器
+  function removeWindowMoveListener() {
+    if (windowMoveUnlisten) {
+      windowMoveUnlisten()
+      windowMoveUnlisten = null
+    }
+
+    if (moveThrottleTimer) {
+      clearTimeout(moveThrottleTimer)
+      moveThrottleTimer = null
+    }
+  }
+
   // 加载窗口配置
   async function loadWindowConfig() {
     try {
@@ -446,6 +521,8 @@ function createSettings() {
     loadWindowConfig,
     setupWindowResizeListener,
     removeWindowResizeListener,
+    setupWindowMoveListener,
+    removeWindowMoveListener,
     reloadAllSettings,
     setupWindowFocusListener,
     removeWindowFocusListener,
